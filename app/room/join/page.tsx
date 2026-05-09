@@ -3,11 +3,10 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { useSearchParams } from "next/navigation";
+
 
 export default function JoinRoomPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [pin, setPin] = useState("");
   const [nickname, setNickname] = useState("");
@@ -15,12 +14,13 @@ export default function JoinRoomPage() {
 
   //PIN自動入力
   useEffect(() => {
-    const pinParam = searchParams.get("pin");
+    const params = new URLSearchParams(window.location.search);
+    const pinParam = params.get("pin");
 
     if (pinParam) {
       setPin(pinParam);
     }
-  }, [searchParams]);
+  }, []);
 
   async function handleJoinRoom() {
     if (!pin.trim() || !nickname.trim()) {
