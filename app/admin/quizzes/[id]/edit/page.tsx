@@ -4,6 +4,23 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+type QuestionType = "choice" | "input";
+type MediaType = "image" | "video" | "";
+
+type EditQuestion = {
+  id: number;
+  question: string;
+  choices: string[];
+  answer: string;
+  questionType: QuestionType;
+  mediaUrl: string | null;
+  mediaType: MediaType;
+  mediaFile: File | null;
+  previewUrl: string;
+  clipStart: string;
+  clipEnd: string;
+};
+
 export default function EditQuizPage() {
   const router = useRouter();
   const params = useParams();
@@ -11,18 +28,14 @@ export default function EditQuizPage() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [questionId, setQuestionId] = useState<number | null>(null);
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
+  const [questions, setQuestions] = useState<EditQuestion[]>([]);
   const [message, setMessage] = useState("");
 
-  const [questionType, setQuestionType] = useState("");
-  const [mediaType, setMediaType] = useState("");
-  const [mediaUrl, setMediaUrl] = useState("");
-  const [mediaFile, setMediaFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState("");
-  const [clipStart, setClipStart] = useState("");
-  const [clipEnd, setClipEnd] = useState("");
+  function updateQuestion(index: number, newQuestion: Partial<EditQuestion>) {
+    setQuestions((prev) =>
+      prev.map((q, i) => (i === index ? { ...q, ...newQuestion } : q))
+    );
+  }
 
   useEffect(() => {
     async function fetchQuiz() {
@@ -42,37 +55,61 @@ export default function EditQuizPage() {
       setTitle(quiz.title);
       setDescription(quiz.description);
 
-      const { data: questions, error: questionError } = await supabase
+      const { data: questionsData, error: questionError } = await supabase
         .from("questions")
         .select("*")
         .eq("quiz_id", id)
-        .order("question_order")
-        .limit(1);
+        .order("question_order");
 
-      if (questionError || !questions || questions.length === 0) {
+      if (questionError || !questionsData || questionsData.length === 0) {
         setMessage("問題が見つかりません");
         return;
       }
 
-      const q = questions[0];
-
-      setQuestionId(q.id);
-      setQuestion(q.question);
-      setAnswer(q.answer);
-      setQuestionType(q.question_type);
-      setMediaType(q.media_type || "");
-      setMediaUrl(q.media_url || "");
-      setClipStart(q.clip_start ? String(q.clip_start) : "");
-      setClipEnd(q.clip_end ? String(q.clip_end) : "");
+      setQuestions(
+        questionsData.map((q) => ({
+          id: q.id,
+          question: q.question,
+          choices: q.choices || ["", ""],
+          answer: q.answer,
+          questionType: q.question_type,
+          mediaUrl: q.media_url,
+          mediaType: q.media_type || "",
+          mediaFile: null,
+          previewUrl: "",
+          clipStart: q.clip_start ? String(q.clip_start) : "",
+          clipEnd: q.clip_end ? String(q.clip_end) : "",
+        }))
+      );
     }
 
     fetchQuiz();
   }, [id]);
 
   async function handleSave() {
-    if (!title || !description || !question || !answer || !questionId) {
-      setMessage("全部入力してね");
+    if (!title || !description) {
+      setMessage("タイトルと説明を入力してね");
       return;
+    }
+
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      const validChoices = q.choices.filter((choice) => choice.trim() !== "");
+
+      if (!q.question || !q.answer) {
+        setMessage(`第${i + 1}問の問題文と正解を入力してね`);
+        return;
+      }
+
+      if (q.questionType === "choice" && validChoices.length < 2) {
+        setMessage(`第${i + 1}問の選択肢は2つ以上必要だよ`);
+        return;
+      }
+
+      if (q.questionType === "choice" && !validChoices.includes(q.answer)) {
+        setMessage(`第${i + 1}問の正解は選択肢の中から選んでね`);
+        return;
+      }
     }
 
     const supabase = createClient();
@@ -90,50 +127,58 @@ export default function EditQuizPage() {
       return;
     }
 
-    let updatedMediaUrl = mediaUrl;
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      let updatedMediaUrl = q.mediaUrl;
 
-    if (mediaFile) {
-      const fileExt = mediaFile.name.split(".").pop();
-      const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `${id}/${fileName}`;
+      if (q.questionType === "input" && q.mediaFile) {
+        const fileExt = q.mediaFile.name.split(".").pop();
+        const fileName = `${Date.now()}-${i}.${fileExt}`;
+        const filePath = `${id}/${fileName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from("quiz-images")
-        .upload(filePath, mediaFile);
+        const { error: uploadError } = await supabase.storage
+          .from("quiz-images")
+          .upload(filePath, q.mediaFile);
 
-      if (uploadError) {
-        setMessage(`アップロードエラー: ${uploadError.message}`);
-        return;
+        if (uploadError) {
+          setMessage(`第${i + 1}問のアップロードエラー: ${uploadError.message}`);
+          return;
+        }
+
+        const { data } = supabase.storage
+          .from("quiz-images")
+          .getPublicUrl(filePath);
+
+        updatedMediaUrl = data.publicUrl;
       }
 
-      const { data } = supabase.storage
-        .from("quiz-images")
-        .getPublicUrl(filePath);
+      const validChoices = q.choices.filter((choice) => choice.trim() !== "");
 
-      updatedMediaUrl = data.publicUrl;
-    }
+      const { error: questionError } = await supabase
+        .from("questions")
+        .update({
+          question: q.question,
+          choices: q.questionType === "choice" ? validChoices : [],
+          answer: q.answer,
+          question_order: i + 1,
+          question_type: q.questionType,
+          media_url: q.questionType === "input" ? updatedMediaUrl : null,
+          media_type: q.questionType === "input" ? q.mediaType : null,
+          clip_start:
+            q.questionType === "input" && q.mediaType === "video" && q.clipStart
+              ? Number(q.clipStart)
+              : null,
+          clip_end:
+            q.questionType === "input" && q.mediaType === "video" && q.clipEnd
+              ? Number(q.clipEnd)
+              : null,
+        })
+        .eq("id", q.id);
 
-    const { error: questionError } = await supabase
-      .from("questions")
-      .update({
-        question,
-        answer,
-        media_url: questionType === "input" ? updatedMediaUrl : null,
-        media_type: questionType === "input" ? mediaType : null,
-        clip_start:
-          questionType === "input" && mediaType === "video" && clipStart
-            ? Number(clipStart)
-            : null,
-        clip_end:
-          questionType === "input" && mediaType === "video" && clipEnd
-            ? Number(clipEnd)
-            : null,
-      })
-      .eq("id", questionId);
-
-    if (questionError) {
-      setMessage(`問題更新エラー: ${questionError.message}`);
-      return;
+      if (questionError) {
+        setMessage(`第${i + 1}問の更新エラー: ${questionError.message}`);
+        return;
+      }
     }
 
     setMessage("保存したよ！");
@@ -156,7 +201,7 @@ export default function EditQuizPage() {
 
           <h1 className="text-4xl font-black md:text-5xl">クイズ編集</h1>
           <p className="mt-3 font-bold text-white/80">
-            タイトル・説明・第1問の内容を編集できます。
+            複数の問題をまとめて編集できます。
           </p>
         </section>
 
@@ -182,103 +227,275 @@ export default function EditQuizPage() {
               />
             </div>
 
-            <div className="rounded-[2rem] border border-white/10 bg-black/20 p-6">
-              <h2 className="mb-5 text-3xl font-black text-cyan-300">
-                第1問
-              </h2>
+            {questions.map((q, questionIndex) => (
+              <div
+                key={q.id}
+                className="rounded-[2rem] border border-white/10 bg-black/20 p-6 shadow-2xl backdrop-blur"
+              >
+                <h2 className="mb-5 text-3xl font-black text-cyan-300">
+                  第{questionIndex + 1}問
+                </h2>
 
-              <label className="mb-2 block font-black text-white">問題文</label>
-              <input
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                className="mb-5 w-full rounded-2xl border border-cyan-300 bg-white/5 px-4 py-4 font-bold text-white outline-none placeholder:text-white/40 focus:ring-4 focus:ring-cyan-300/30"
-              />
+                <label className="mb-2 block font-black text-white">
+                  問題文
+                </label>
+                <input
+                  value={q.question}
+                  onChange={(e) =>
+                    updateQuestion(questionIndex, {
+                      question: e.target.value,
+                    })
+                  }
+                  className="mb-5 w-full rounded-2xl border border-cyan-300 bg-white/5 px-4 py-4 font-bold text-white outline-none placeholder:text-white/40 focus:ring-4 focus:ring-cyan-300/30"
+                />
 
-              {questionType === "input" && (
-                <>
-                  <label className="mb-2 block font-black text-white">
-                    現在のメディア
-                  </label>
+                <label className="mb-2 block font-black text-white">
+                  問題タイプ
+                </label>
+                <select
+                  value={q.questionType}
+                  onChange={(e) => {
+                    const value = e.target.value as QuestionType;
 
-                  {mediaType === "image" && mediaUrl && (
-                    <div className="mb-5 rounded-3xl bg-gray-950/50 p-4">
-                      <img
-                        src={previewUrl || mediaUrl}
-                        alt="quiz image"
-                        className="mx-auto max-h-80 rounded-2xl object-contain"
-                      />
+                    updateQuestion(questionIndex, {
+                      questionType: value,
+                      answer: "",
+                      choices: ["", ""],
+                      mediaFile: null,
+                      previewUrl: "",
+                      mediaType: "",
+                      mediaUrl: null,
+                      clipStart: "",
+                      clipEnd: "",
+                    });
+                  }}
+                  className="mb-5 w-full rounded-2xl border border-cyan-300 bg-white/5 px-4 py-4 font-bold text-white outline-none focus:ring-4 focus:ring-cyan-300/30"
+                >
+                  <option className="bg-white text-gray-950" value="choice">
+                    選択肢クイズ
+                  </option>
+                  <option className="bg-white text-gray-950" value="input">
+                    入力クイズ
+                  </option>
+                </select>
+
+                {q.questionType === "choice" && (
+                  <>
+                    <label className="mb-2 block font-black text-white">
+                      選択肢
+                    </label>
+
+                    <div className="mb-5 space-y-3">
+                      {q.choices.map((choice, choiceIndex) => (
+                        <div key={choiceIndex} className="flex gap-2">
+                          <input
+                            value={choice}
+                            onChange={(e) => {
+                              const newChoices = [...q.choices];
+                              const oldChoice = newChoices[choiceIndex];
+
+                              newChoices[choiceIndex] = e.target.value;
+
+                              updateQuestion(questionIndex, {
+                                choices: newChoices,
+                                answer:
+                                  q.answer === oldChoice ? "" : q.answer,
+                              });
+                            }}
+                            className="w-full rounded-2xl border border-cyan-300 bg-white/5 px-4 py-4 font-bold text-white outline-none placeholder:text-white/40 focus:ring-4 focus:ring-cyan-300/30"
+                            placeholder={`選択肢${choiceIndex + 1}`}
+                          />
+
+                          {q.choices.length > 2 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const removedChoice = q.choices[choiceIndex];
+
+                                updateQuestion(questionIndex, {
+                                  choices: q.choices.filter(
+                                    (_, i) => i !== choiceIndex
+                                  ),
+                                  answer:
+                                    q.answer === removedChoice ? "" : q.answer,
+                                });
+                              }}
+                              className="rounded-2xl bg-red-500 px-4 font-black text-white"
+                            >
+                              削除
+                            </button>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  )}
 
-                  {mediaType === "video" && mediaUrl && (
-                    <div className="mb-5 rounded-3xl bg-gray-950/50 p-4">
-                      <video
-                        src={previewUrl || mediaUrl}
-                        controls
-                        className="mx-auto max-h-80 rounded-2xl"
-                      />
-                    </div>
-                  )}
-
-                  <label className="mb-2 block font-black text-white">
-                    メディアを差し替える
-                  </label>
-                  <input
-                    type="file"
-                    accept="image/*,video/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-
-                      setMediaFile(file);
-                      setPreviewUrl(URL.createObjectURL(file));
-
-                      if (file.type.startsWith("image/")) {
-                        setMediaType("image");
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateQuestion(questionIndex, {
+                          choices: [...q.choices, ""],
+                        })
                       }
+                      className="mb-5 rounded-2xl bg-cyan-400 px-5 py-3 font-black text-gray-950 shadow-lg shadow-cyan-400/40"
+                    >
+                      選択肢を追加
+                    </button>
 
-                      if (file.type.startsWith("video/")) {
-                        setMediaType("video");
+                    <label className="mb-2 block font-black text-white">
+                      正解
+                    </label>
+                    <select
+                      value={q.answer}
+                      onChange={(e) =>
+                        updateQuestion(questionIndex, {
+                          answer: e.target.value,
+                        })
                       }
-                    }}
-                    className="mb-5 w-full rounded-2xl border border-cyan-300 bg-white/5 px-4 py-4 font-bold text-white outline-none file:mr-4 file:rounded-xl file:border-0 file:bg-cyan-400 file:px-4 file:py-2 file:font-black file:text-gray-950"
-                  />
+                      className="w-full rounded-2xl border border-pink-400 bg-white px-4 py-4 font-bold text-gray-950 outline-none shadow-lg shadow-pink-500/30 focus:ring-4 focus:ring-pink-300/30"
+                    >
+                      <option className="bg-white text-gray-950" value="">
+                        正解を選んでね
+                      </option>
+                      {q.choices
+                        .filter((choice) => choice.trim() !== "")
+                        .map((choice) => (
+                          <option
+                            className="bg-white text-gray-950"
+                            key={choice}
+                            value={choice}
+                          >
+                            {choice}
+                          </option>
+                        ))}
+                    </select>
+                  </>
+                )}
 
-                  {mediaType === "video" && (
-                    <div className="mb-5">
-                      <label className="mb-2 block font-black text-white">
-                        動画の範囲
-                      </label>
+                {q.questionType === "input" && (
+                  <>
+                    <label className="mb-2 block font-black text-white">
+                      メディアタイプ
+                    </label>
+                    <select
+                      value={q.mediaType}
+                      onChange={(e) =>
+                        updateQuestion(questionIndex, {
+                          mediaType: e.target.value as MediaType,
+                        })
+                      }
+                      className="mb-5 w-full rounded-2xl border border-cyan-300 bg-white/5 px-4 py-4 font-bold text-white outline-none focus:ring-4 focus:ring-cyan-300/30"
+                    >
+                      <option className="bg-white text-gray-950" value="">
+                        選んでね
+                      </option>
+                      <option className="bg-white text-gray-950" value="image">
+                        画像
+                      </option>
+                      <option className="bg-white text-gray-950" value="video">
+                        動画
+                      </option>
+                    </select>
 
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <input
-                          type="number"
-                          value={clipStart}
-                          onChange={(e) => setClipStart(e.target.value)}
-                          placeholder="開始秒 (例: 2)"
-                          className="rounded-2xl border border-cyan-300 bg-white/5 px-4 py-4 font-bold text-white outline-none placeholder:text-white/40 focus:ring-4 focus:ring-cyan-300/30"
-                        />
-
-                        <input
-                          type="number"
-                          value={clipEnd}
-                          onChange={(e) => setClipEnd(e.target.value)}
-                          placeholder="終了秒 (例: 5)"
-                          className="rounded-2xl border border-cyan-300 bg-white/5 px-4 py-4 font-bold text-white outline-none placeholder:text-white/40 focus:ring-4 focus:ring-cyan-300/30"
+                    {(q.previewUrl || q.mediaUrl) && q.mediaType === "image" && (
+                      <div className="mb-5 rounded-3xl bg-gray-950/50 p-4">
+                        <img
+                          src={q.previewUrl || q.mediaUrl || ""}
+                          alt="quiz image"
+                          className="mx-auto max-h-80 rounded-2xl object-contain"
                         />
                       </div>
-                    </div>
-                  )}
-                </>
-              )}
+                    )}
 
-              <label className="mb-2 block font-black text-white">正解</label>
-              <input
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                className="w-full rounded-2xl border border-pink-400 bg-white px-4 py-4 font-bold text-gray-950 outline-none placeholder:text-gray-400 shadow-lg shadow-pink-500/30 focus:ring-4 focus:ring-pink-300/30"
-              />
-            </div>
+                    {(q.previewUrl || q.mediaUrl) && q.mediaType === "video" && (
+                      <div className="mb-5 rounded-3xl bg-gray-950/50 p-4">
+                        <video
+                          src={q.previewUrl || q.mediaUrl || ""}
+                          controls
+                          className="mx-auto max-h-80 rounded-2xl"
+                        />
+                      </div>
+                    )}
+
+                    <label className="mb-2 block font-black text-white">
+                      メディアを差し替える
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+
+                        let newMediaType: MediaType = "";
+
+                        if (file.type.startsWith("image/")) {
+                          newMediaType = "image";
+                        }
+
+                        if (file.type.startsWith("video/")) {
+                          newMediaType = "video";
+                        }
+
+                        updateQuestion(questionIndex, {
+                          mediaFile: file,
+                          previewUrl: URL.createObjectURL(file),
+                          mediaType: newMediaType,
+                        });
+                      }}
+                      className="mb-5 w-full rounded-2xl border border-cyan-300 bg-white/5 px-4 py-4 font-bold text-white outline-none file:mr-4 file:rounded-xl file:border-0 file:bg-cyan-400 file:px-4 file:py-2 file:font-black file:text-gray-950"
+                    />
+
+                    {q.mediaType === "video" && (
+                      <div className="mb-5">
+                        <label className="mb-2 block font-black text-white">
+                          動画の範囲
+                        </label>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <input
+                            type="number"
+                            value={q.clipStart}
+                            onChange={(e) =>
+                              updateQuestion(questionIndex, {
+                                clipStart: e.target.value,
+                              })
+                            }
+                            placeholder="開始秒 (例: 2)"
+                            className="rounded-2xl border border-cyan-300 bg-white/5 px-4 py-4 font-bold text-white outline-none placeholder:text-white/40 focus:ring-4 focus:ring-cyan-300/30"
+                          />
+
+                          <input
+                            type="number"
+                            value={q.clipEnd}
+                            onChange={(e) =>
+                              updateQuestion(questionIndex, {
+                                clipEnd: e.target.value,
+                              })
+                            }
+                            placeholder="終了秒 (例: 5)"
+                            className="rounded-2xl border border-cyan-300 bg-white/5 px-4 py-4 font-bold text-white outline-none placeholder:text-white/40 focus:ring-4 focus:ring-cyan-300/30"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <label className="mb-2 block font-black text-white">
+                      正解
+                    </label>
+                    <input
+                      value={q.answer}
+                      onChange={(e) =>
+                        updateQuestion(questionIndex, {
+                          answer: e.target.value,
+                        })
+                      }
+                      className="w-full rounded-2xl border border-pink-400 bg-white px-4 py-4 font-bold text-gray-950 outline-none placeholder:text-gray-400 shadow-lg shadow-pink-500/30 focus:ring-4 focus:ring-pink-300/30"
+                      placeholder="クロバット"
+                    />
+                  </>
+                )}
+              </div>
+            ))}
 
             <button
               onClick={handleSave}
