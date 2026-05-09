@@ -27,7 +27,16 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body 
+      className="min-h-full flex flex-col">
+        <header className="flex items-center gap-4 bg-white p-4 shadow">
+          <a href="/" className="font-bold">🏠 ホーム</a>
+          <a href="/quizzes">📚 クイズ一覧</a>
+          <a href="/admin/create-quiz">➕ クイズ作成</a>
+          <a href="/admin/quizzes">🛠 管理</a>
+        </header>
+        {children}
+      </body>
     </html>
   );
 }
