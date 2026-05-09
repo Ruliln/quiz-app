@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
 
 function generatePin() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -230,5 +229,12 @@ function CreateRoomPageContent() {
         </div>
       </div>
     </main>
+  );
+}
+export default function CreateRoomPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <CreateRoomPageContent />
+    </Suspense>
   );
 }
