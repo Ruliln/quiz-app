@@ -262,8 +262,13 @@ export default function CreateQuizPage() {
               }}
               className="mb-4 w-full rounded-2xl border border-cyan-300 bg-white/5 px-4 py-3 font-bold text-white outline-none placeholder:text-white/40 focus:ring-4 focus:ring-cyan-300/30"
             >
-              <option value="choice">選択肢クイズ</option>
-              <option value="input">入力クイズ</option>
+              <option className="bg-white text-gray-950" value="choice">
+                選択肢クイズ
+              </option>
+
+              <option className="bg-white text-gray-950" value="input">
+                入力クイズ
+              </option>
             </select>
 
             {q.questionType === "input" && (
@@ -280,9 +285,15 @@ export default function CreateQuizPage() {
                   }
                   className="mb-4 w-full rounded-2xl border border-cyan-300 bg-white/5 px-4 py-3 font-bold text-white outline-none placeholder:text-white/40 focus:ring-4 focus:ring-cyan-300/30"
                 >
-                  <option value="">選んでね</option>
-                  <option value="image">画像</option>
-                  <option value="video">動画</option>
+                  <option className="bg-white text-gray-950" value="">
+                    選んでね
+                  </option>
+                  <option className="bg-white text-gray-950" value="image">
+                    画像
+                  </option>
+                  <option className="bg-white text-gray-950" value="video">
+                    動画
+                  </option>
                 </select>
 
                 {q.previewUrl && q.mediaType === "image" && (
@@ -431,11 +442,17 @@ export default function CreateQuizPage() {
                   }
                   className="mb-6 w-full rounded border px-3 py-2"
                 >
-                  <option value="">正解を選んでね</option>
+                  <option className="bg-white text-gray-950" value="">
+                    正解を選んでね
+                  </option>
                   {q.choices
                     .filter((choice) => choice.trim() !== "")
                     .map((choice) => (
-                      <option key={choice} value={choice}>
+                      <option
+                        className="bg-white text-gray-950"
+                        key={choice}
+                        value={choice}
+                      >
                         {choice}
                       </option>
                     ))}
