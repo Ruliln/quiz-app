@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 function generatePin() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -14,7 +15,7 @@ type Quiz = {
   title: string;
 };
 
-export default function CreateRoomPage() {
+function CreateRoomPageContent() {
   const router = useRouter();
 
   const [nickname, setNickname] = useState("");
